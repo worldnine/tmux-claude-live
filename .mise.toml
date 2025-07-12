@@ -1,0 +1,7 @@
+[tools]
+node = "20"
+bun = "latest"
+jq = "latest"
+
+[env]
+NODE_ENV = "development"
