@@ -115,6 +115,36 @@ describe('CcusageClient', () => {
       // Assert
       expect(blockData).toBeNull()
     })
+
+    test('should include token-limit option when provided', async () => {
+      // Arrange
+      const mockResponse = {
+        blocks: [{
+          isActive: true,
+          totalTokens: 8771,
+          costUSD: 10.94,
+          projection: { remainingMinutes: 45 },
+          burnRate: { tokensPerMinute: 250 },
+          tokenLimitStatus: {
+            limit: 100000,
+            projectedUsage: 8771,
+            percentUsed: 8.77,
+            status: 'ok'
+          }
+        }]
+      }
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 100000', JSON.stringify(mockResponse))
+
+      // Act
+      const result = await client.getActiveBlock(100000)
+
+      // Assert
+      expect(result).toBeDefined()
+      expect(result?.tokenLimitStatus).toBeDefined()
+      expect(result?.tokenLimitStatus?.status).toBe('ok')
+      expect(result?.tokenLimitStatus?.limit).toBe(100000)
+      expect(mockExecutor.wasCommandExecuted('ccusage blocks --active --json --token-limit 100000')).toBe(true)
+    })
   })
 
   describe('getAllBlocks', () => {

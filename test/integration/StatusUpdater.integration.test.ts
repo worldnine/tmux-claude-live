@@ -201,4 +201,53 @@ describe('StatusUpdater Integration', () => {
     )
     expect(sessionSecondsCommand).toBeDefined()
   })
+
+  test('should use ccusage tokenLimitStatus for warning levels', async () => {
+    // Arrange - ccusageのstatusフィールドを含むレスポンス
+    const mockCcusageResponse = {
+      blocks: [
+        {
+          isActive: true,
+          totalTokens: 130000,
+          costUSD: 45.50,
+          startTime: '2025-07-09T15:00:00.000Z',
+          endTime: '2025-07-09T20:00:00.000Z',
+          projection: {
+            remainingMinutes: 25
+          },
+          burnRate: {
+            tokensPerMinute: 800
+          },
+          tokenLimitStatus: {
+            limit: 140000,
+            projectedUsage: 130000,
+            percentUsed: 92.86,
+            status: 'exceeds'
+          }
+        }
+      ]
+    }
+    
+    mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', JSON.stringify(mockCcusageResponse))
+    // 制限値を明示的に設定（ccusageにtoken-limitオプションを渡すため）
+    mockExecutor.setResponse('tmux show-option -gqv "@ccusage_token_limit"', '140000')
+
+    // Act
+    await statusUpdater.updateOnce()
+
+    // Assert - ccusageのstatusフィールドに基づく警告色が設定されているか確認
+    const executedCommands = mockExecutor.getExecutedCommands()
+    const warningColorCommand = executedCommands.find(cmd => 
+      cmd.includes('@ccusage_warning_color') && cmd.includes('colour1') // 赤色（danger）
+    )
+    expect(warningColorCommand).toBeDefined()
+    
+    const warningLevelCommand = executedCommands.find(cmd => 
+      cmd.includes('@ccusage_warning_level') && cmd.includes('danger')
+    )
+    expect(warningLevelCommand).toBeDefined()
+    
+    // token-limitオプション付きでccusageが実行されたことを確認
+    expect(mockExecutor.wasCommandExecuted('ccusage blocks --active --json --token-limit 140000')).toBe(true)
+  })
 })
