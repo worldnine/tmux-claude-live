@@ -10,7 +10,7 @@ ccusageの公式`--token-limit`オプションと`status`フィールドを使�
 
 ### 主な特徴
 
-- **⭐ ccusage制限値連携**: ccusageの`--token-limit`機能を活用した正確な使用率計算
+- **ccusage制限値連携**: ccusageの`--token-limit`機能を活用した正確な使用率計算
 - **リアルタイム監視**: トークン使用量、消費率、コストをリアルタイムで追跡
 - **5時間ブロック追跡**: Claude Codeの請求ブロック管理
 - **セッション残り時間**: セッションの残り時間を表示
@@ -58,6 +58,18 @@ tmux source-file ~/.tmux.conf
 ## 使用方法
 
 ### 基本的な使用
+
+#### ⚠️ 重要：制限値の設定
+
+正確な使用率計算と警告表示を行うには、制限値を設定してください：
+
+```bash
+# ~/.tmux.conf
+set -g @ccusage_token_limit "140000"  # Claude Pro: 140k tokens per 5 hours
+# set -g @ccusage_token_limit "300000"  # Claude Pro Max: 300k tokens per 5 hours
+```
+
+#### 表示設定
 
 プラグインは自動的にtmux変数を設定し、ユーザーが自由にカスタマイズできます：
 
