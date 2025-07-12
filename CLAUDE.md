@@ -70,6 +70,7 @@ tmux-claude-live/
 ├── docs/                            # ドキュメント
 │   ├── ccusage-api-specification.md
 │   ├── ccusage-live-specification.md
+│   ├── ccusage-token-limit-discovery.md  # ⭐ 重要：制限値機能の発見
 │   └── tmux-variables-design.md
 ├── src/
 │   ├── core/                        # コア機能
@@ -548,6 +549,27 @@ tmux source-file ~/.tmux.conf
 - README.mdの充実
 - 設定例の提供
 - トラブルシューティング
+
+## 重要な発見・知見
+
+### ⭐ ccusage制限値機能の発見 (2025-07-12)
+
+ccusageには`--token-limit`オプションと`tokenLimitStatus`フィールドが存在することが判明しました。
+詳細は **[ccusage-token-limit-discovery.md](./docs/ccusage-token-limit-discovery.md)** を参照。
+
+**影響**:
+- より正確な使用率計算
+- ccusageの`status`フィールドベースの警告システム
+- 独自計算からccusage計算結果の優先使用への変更
+
+**活用方法**:
+```bash
+# tmux設定で制限値を指定
+set -g @ccusage_token_limit "140000"
+
+# ccusageが制限値付きで実行される
+ccusage blocks --active --json --token-limit 140000
+```
 
 ## Resources
 

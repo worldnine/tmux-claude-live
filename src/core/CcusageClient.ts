@@ -1,6 +1,13 @@
 import type { CommandExecutor } from '../utils/CommandExecutor'
 import { RealCommandExecutor } from '../utils/CommandExecutor'
 
+export interface TokenLimitStatus {
+  limit: number
+  projectedUsage: number
+  percentUsed: number
+  status: string
+}
+
 export interface BlockData {
   isActive: boolean
   totalTokens: number
@@ -21,6 +28,7 @@ export interface BlockData {
   entries?: number
   startTime?: string
   endTime?: string
+  tokenLimitStatus?: TokenLimitStatus
 }
 
 export class CcusageClient {
@@ -28,9 +36,14 @@ export class CcusageClient {
 
   constructor(private executor: CommandExecutor = new RealCommandExecutor()) {}
 
-  async getActiveBlock(): Promise<BlockData | null> {
+  async getActiveBlock(tokenLimit?: number): Promise<BlockData | null> {
     try {
-      const output = this.executor.execute('ccusage blocks --active --json', {
+      let command = 'ccusage blocks --active --json'
+      if (tokenLimit && tokenLimit > 0) {
+        command += ` --token-limit ${tokenLimit}`
+      }
+      
+      const output = this.executor.execute(command, {
         timeout: this.COMMAND_TIMEOUT
       })
       
@@ -96,7 +109,8 @@ export class CcusageClient {
       models: block.models,
       entries: block.entries,
       startTime: block.startTime,
-      endTime: block.endTime
+      endTime: block.endTime,
+      tokenLimitStatus: block.tokenLimitStatus
     }
   }
 }
