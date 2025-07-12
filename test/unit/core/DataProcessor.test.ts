@@ -117,30 +117,69 @@ describe('DataProcessor', () => {
       })
     })
 
-    test('should calculate time-based warning levels', () => {
-      // Arrange
+
+    test('should use ccusage tokenLimitStatus for warning levels', () => {
+      // Arrange - ccusageのstatusフィールドを使用する
       const testCases = [
-        { minutes: 90, expectedLevel: 'normal' },   // 1.5時間
-        { minutes: 45, expectedLevel: 'warning' },  // 45分
-        { minutes: 15, expectedLevel: 'danger' },   // 15分
-        { minutes: 0, expectedLevel: 'danger' },    // 0分
+        { 
+          status: 'ok', 
+          expectedLevel: 'normal',
+          tokens: 50000,
+          limit: 140000
+        },
+        { 
+          status: 'warning', 
+          expectedLevel: 'warning',
+          tokens: 98000,
+          limit: 140000
+        },
+        { 
+          status: 'exceeds', 
+          expectedLevel: 'danger',
+          tokens: 200000,
+          limit: 140000
+        }
       ]
 
-      testCases.forEach(({ minutes, expectedLevel }) => {
+      testCases.forEach(({ status, expectedLevel, tokens, limit }) => {
         const blockData: BlockData = {
           isActive: true,
-          totalTokens: 50000,  // 35.7% (normal range)
+          totalTokens: tokens,
           costUSD: 5.0,
-          projection: { remainingMinutes: minutes },
-          burnRate: { tokensPerMinute: 100 }
+          projection: { remainingMinutes: 120 },
+          burnRate: { tokensPerMinute: 100 },
+          tokenLimitStatus: {
+            limit: limit,
+            projectedUsage: tokens,
+            percentUsed: (tokens / limit) * 100,
+            status: status
+          }
         }
 
         // Act
-        const result = processor.processBlockData(blockData, 140000)
+        const result = processor.processBlockData(blockData, limit)
 
-        // Assert
+        // Assert - ccusageのstatusフィールドに基づいて警告レベルが決まることを確認
         expect(result.warningLevel).toBe(expectedLevel)
       })
+    })
+
+    test('should fallback to usage-based warning when tokenLimitStatus is missing', () => {
+      // Arrange - tokenLimitStatusがない場合のフォールバック
+      const blockData: BlockData = {
+        isActive: true,
+        totalTokens: 98000, // 70% (warning level)
+        costUSD: 5.0,
+        projection: { remainingMinutes: 120 },
+        burnRate: { tokensPerMinute: 100 }
+        // tokenLimitStatus なし
+      }
+
+      // Act
+      const result = processor.processBlockData(blockData, 140000)
+
+      // Assert - 使用率ベースのフォールバック
+      expect(result.warningLevel).toBe('warning')
     })
 
     test('should calculate block progress correctly', () => {

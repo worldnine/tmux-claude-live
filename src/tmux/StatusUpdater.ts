@@ -70,7 +70,7 @@ export class StatusUpdater {
       this.updateCount++
       
       const config = await this.loadConfigWithRetry()
-      const blockData = await this.getBlockDataWithRetry()
+      const blockData = await this.getBlockDataWithRetry(config.tokenLimit)
       
       // キャッシュチェック
       const configHash = this.hashConfig(config)
@@ -312,13 +312,13 @@ export class StatusUpdater {
   /**
    * リトライ機能付きccusageデータ取得
    */
-  private async getBlockDataWithRetry(maxAttempts: number = 2): Promise<any> {
+  private async getBlockDataWithRetry(tokenLimit?: number | null, maxAttempts: number = 2): Promise<any> {
     let lastError: Error | null = null
     
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
-        logger.debug(`Getting block data (attempt ${attempt}/${maxAttempts})`)
-        const blockData = await this.ccusageClient.getActiveBlock()
+        logger.debug(`Getting block data (attempt ${attempt}/${maxAttempts})`, { tokenLimit })
+        const blockData = await this.ccusageClient.getActiveBlock(tokenLimit || undefined)
         logger.debug('Block data retrieved successfully', { isActive: blockData?.isActive })
         return blockData
       } catch (error) {

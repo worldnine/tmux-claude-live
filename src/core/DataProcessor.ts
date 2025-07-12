@@ -12,17 +12,17 @@ export interface ProcessedData {
   sessionRemainingMinutes: number
   sessionRemainingSeconds: number
   
-  // 使用率情報
-  usagePercent: number
-  tokensRemaining: number
+  // 使用率情報（制限値設定時のみ有効）
+  usagePercent: number | null
+  tokensRemaining: number | null
   blockProgress: number
   
   // 消費率情報
   burnRate: number
   costPerHour: number
   
-  // 警告情報
-  warningLevel: 'normal' | 'warning' | 'danger'
+  // 警告情報（制限値設定時のみ有効）
+  warningLevel: 'normal' | 'warning' | 'danger' | null
   
   // オプション情報
   tokenCounts?: {
@@ -39,7 +39,7 @@ export class DataProcessor {
   private readonly COST_PER_TOKEN = 0.000015  // $0.000015 per token
   private readonly BLOCK_DURATION_MINUTES = 300  // 5時間 = 300分
   
-  processBlockData(blockData: BlockData | null, tokenLimit: number): ProcessedData {
+  processBlockData(blockData: BlockData | null, tokenLimit: number | null): ProcessedData {
     // nullチェック
     if (!blockData) {
       return this.getDefaultProcessedData(tokenLimit)
@@ -55,16 +55,27 @@ export class DataProcessor {
     const sessionRemainingMinutes = this.calculateSessionRemainingMinutes(blockData)
     const sessionRemainingSeconds = sessionRemainingMinutes * 60
     
-    // 計算
-    const usagePercent = (totalTokens / tokenLimit) * 100
-    const tokensRemaining = Math.max(0, tokenLimit - totalTokens)
+    // ccusageのtokenLimitStatusを優先使用、なければ独自計算
+    let usagePercent: number | null = null
+    let tokensRemaining: number | null = null
+    let warningLevel: 'normal' | 'warning' | 'danger' | null = null
+    
+    if (blockData.tokenLimitStatus) {
+      // ccusageから制限値情報が取得できた場合
+      usagePercent = blockData.tokenLimitStatus.percentUsed
+      tokensRemaining = Math.max(0, blockData.tokenLimitStatus.limit - totalTokens)
+      warningLevel = this.mapCcusageStatusToWarningLevel(blockData.tokenLimitStatus.status)
+    } else if (tokenLimit) {
+      // フォールバック：独自計算
+      usagePercent = (totalTokens / tokenLimit) * 100
+      tokensRemaining = Math.max(0, tokenLimit - totalTokens)
+      warningLevel = this.determineWarningLevel(usagePercent)
+    }
+    
     const remainingSeconds = remainingMinutes * 60
     const elapsedMinutes = this.BLOCK_DURATION_MINUTES - remainingMinutes
     const blockProgress = Math.min(100, Math.max(0, (elapsedMinutes / this.BLOCK_DURATION_MINUTES) * 100))
     const costPerHour = this.calculateCostPerHour(burnRate)
-    
-    // 警告レベル判定
-    const warningLevel = this.determineWarningLevel(usagePercent, remainingMinutes)
     
     return {
       isActive: blockData.isActive,
@@ -74,7 +85,7 @@ export class DataProcessor {
       remainingSeconds,
       sessionRemainingMinutes,
       sessionRemainingSeconds,
-      usagePercent: Math.round(usagePercent * 100) / 100,  // 小数点2桁
+      usagePercent: usagePercent !== null ? Math.round(usagePercent * 100) / 100 : null,
       tokensRemaining,
       blockProgress: Math.round(blockProgress),
       burnRate,
@@ -117,30 +128,37 @@ export class DataProcessor {
     }
   }
   
-  private determineWarningLevel(usagePercent: number, remainingMinutes: number): 'normal' | 'warning' | 'danger' {
-    // 使用率ベース
-    let usageLevel: 'normal' | 'warning' | 'danger' = 'normal'
+  private determineWarningLevel(usagePercent: number): 'normal' | 'warning' | 'danger' {
+    // 使用率のみで判定（残り時間は考慮しない）
     if (usagePercent >= 90) {
-      usageLevel = 'danger'
+      return 'danger'
     } else if (usagePercent >= 70) {
-      usageLevel = 'warning'
+      return 'warning'
+    } else {
+      return 'normal'
     }
-    
-    // 時間ベース
-    let timeLevel: 'normal' | 'warning' | 'danger' = 'normal'
-    if (remainingMinutes < 30) {
-      timeLevel = 'danger'
-    } else if (remainingMinutes <= 60) {
-      timeLevel = 'warning'
-    }
-    
-    // より厳しい方を採用
-    if (usageLevel === 'danger' || timeLevel === 'danger') return 'danger'
-    if (usageLevel === 'warning' || timeLevel === 'warning') return 'warning'
-    return 'normal'
   }
   
-  private getDefaultProcessedData(tokenLimit: number): ProcessedData {
+  /**
+   * ccusageのstatus文字列を警告レベルにマップ
+   */
+  private mapCcusageStatusToWarningLevel(status: string): 'normal' | 'warning' | 'danger' {
+    switch (status.toLowerCase()) {
+      case 'exceeds':
+      case 'danger':
+        return 'danger'
+      case 'warning':
+      case 'high':
+        return 'warning'
+      case 'ok':
+      case 'normal':
+      case 'good':
+      default:
+        return 'normal'
+    }
+  }
+  
+  private getDefaultProcessedData(tokenLimit: number | null): ProcessedData {
     return {
       isActive: false,
       totalTokens: 0,
@@ -149,12 +167,12 @@ export class DataProcessor {
       remainingSeconds: 0,
       sessionRemainingMinutes: 0,
       sessionRemainingSeconds: 0,
-      usagePercent: 0,
-      tokensRemaining: tokenLimit,
+      usagePercent: tokenLimit ? 0 : null,
+      tokensRemaining: tokenLimit ? tokenLimit : null,
       blockProgress: 0,
       burnRate: 0,
       costPerHour: 0,
-      warningLevel: 'normal'
+      warningLevel: tokenLimit ? 'normal' : null
     }
   }
 }
