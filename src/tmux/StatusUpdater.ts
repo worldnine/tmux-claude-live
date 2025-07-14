@@ -2,6 +2,7 @@ import { CcusageClient } from '../core/CcusageClient'
 import { DataProcessor } from '../core/DataProcessor'
 import { VariableManager } from './VariableManager'
 import { ConfigManager } from '../core/ConfigManager'
+import { LockManager } from '../utils/LockManager'
 import { logger } from '../utils/Logger'
 import { errorHandler } from '../utils/ErrorHandler'
 import type { ProcessedData } from '../core/DataProcessor'
@@ -27,6 +28,16 @@ interface CacheEntry {
   timestamp: number
   configHash: string
   dataHash: string
+  hitCount: number
+  lastAccessTime: number
+}
+
+interface CacheMetrics {
+  totalHits: number
+  totalMisses: number
+  averageComputeTime: number
+  dataChangeFrequency: number
+  adaptiveTTL: number
 }
 
 export class StatusUpdater {
@@ -34,6 +45,7 @@ export class StatusUpdater {
   private dataProcessor: DataProcessor
   private variableManager: VariableManager
   private configManager: ConfigManager
+  private lockManager: LockManager
   
   private intervalId: NodeJS.Timeout | null = null
   private updateCount: number = 0
@@ -43,7 +55,10 @@ export class StatusUpdater {
   private cache: CacheEntry | null = null
   private cacheHits: number = 0
   private cacheMisses: number = 0
-  private readonly CACHE_TTL = 30000 // 30秒間キャッシュを保持
+  private readonly BASE_CACHE_TTL = 30000 // ベースキャッシュTTL
+  private adaptiveTTL: number = 30000 // 適応的TTL
+  private lastDataHashes: string[] = [] // データ変化パターン追跡
+  private computeTimes: number[] = [] // 計算時間の履歴
   
   // エラーハンドリング: エラー統計とリトライ
   private errorCount: number = 0
@@ -60,6 +75,7 @@ export class StatusUpdater {
     this.dataProcessor = dataProcessor || new DataProcessor()
     this.variableManager = variableManager || new VariableManager()
     this.configManager = configManager || new ConfigManager()
+    this.lockManager = new LockManager('tmux-claude-live-daemon')
   }
 
   async updateOnce(): Promise<void> {
@@ -79,15 +95,22 @@ export class StatusUpdater {
       if (this.cache && 
           this.cache.configHash === configHash &&
           this.cache.dataHash === dataHash &&
-          (Date.now() - this.cache.timestamp) < this.CACHE_TTL) {
+          (Date.now() - this.cache.timestamp) < this.adaptiveTTL) {
         // キャッシュヒット
         this.cacheHits++
+        this.cache.hitCount++
+        this.cache.lastAccessTime = Date.now()
+        
         logger.debug('Cache hit - using cached variables')
         await this.setBulkVariablesWithRetry(this.cache.variableMap)
         this.lastUpdateTime = Date.now()
         
         const duration = Date.now() - startTime
-        logger.debug('Update cycle completed (cached)', { duration, cacheHits: this.cacheHits })
+        logger.debug('Update cycle completed (cached)', { 
+          duration, 
+          cacheHits: this.cacheHits,
+          adaptiveTTL: this.adaptiveTTL 
+        })
         return
       }
       
@@ -98,6 +121,16 @@ export class StatusUpdater {
       const processedData = this.dataProcessor.processBlockData(blockData, config.tokenLimit)
       const variableMap = this.variableManager.generateVariableMap(processedData, config)
       
+      // 計算時間を記録
+      const computeTime = Date.now() - startTime
+      this.recordComputeTime(computeTime)
+      
+      // データ変化パターンを記録
+      this.recordDataChange(dataHash)
+      
+      // 適応的TTLを更新
+      this.updateAdaptiveTTL()
+      
       // キャッシュを更新
       this.cache = {
         config,
@@ -105,7 +138,9 @@ export class StatusUpdater {
         variableMap,
         timestamp: Date.now(),
         configHash,
-        dataHash
+        dataHash,
+        hitCount: 0,
+        lastAccessTime: Date.now()
       }
       
       await this.setBulkVariablesWithRetry(variableMap)
@@ -154,6 +189,15 @@ export class StatusUpdater {
   startDaemon(interval?: number): NodeJS.Timeout {
     logger.info('Starting daemon', { interval })
     
+    // ロックを取得（他のプロセスが動いていないかチェック）
+    if (!this.lockManager.acquire()) {
+      const lockInfo = this.lockManager.getLockInfo()
+      throw new Error(`Another daemon is already running (PID: ${lockInfo?.pid})`)
+    }
+    
+    // プロセス終了時の自動クリーンアップを設定
+    this.lockManager.setupAutoRelease()
+    
     // 既存のデーモンを停止
     this.stopDaemon()
     
@@ -171,7 +215,8 @@ export class StatusUpdater {
     
     logger.info('Daemon started successfully', { 
       interval: updateInterval,
-      nextUpdate: new Date(Date.now() + updateInterval)
+      nextUpdate: new Date(Date.now() + updateInterval),
+      pid: process.pid
     })
     
     return this.intervalId
@@ -182,6 +227,7 @@ export class StatusUpdater {
       logger.info('Stopping daemon')
       clearInterval(this.intervalId)
       this.intervalId = null
+      this.lockManager.release()
       logger.info('Daemon stopped successfully')
     }
   }
@@ -244,25 +290,157 @@ export class StatusUpdater {
   }
 
   /**
-   * BlockDataのハッシュ値を生成
-   * ccusageデータの変更を検出してキャッシュを無効化するために使用
+   * BlockDataのスマートハッシュ値を生成
+   * 主要データのみを使用し、微細な変化は無視してキャッシュ効率を向上
    */
   private hashBlockData(blockData: any): string {
     if (!blockData) {
       return 'null'
     }
     
-    const relevantData = {
+    // 重要度の高いデータのみでハッシュ計算
+    const coreData = {
       isActive: blockData.isActive,
-      totalTokens: blockData.totalTokens,
-      costUSD: blockData.costUSD,
-      remainingMinutes: blockData.projection?.remainingMinutes,
-      tokensPerMinute: blockData.burnRate?.tokensPerMinute,
+      // totalTokensを100単位で丸める（小さな変化を無視）
+      totalTokens: Math.floor(blockData.totalTokens / 100) * 100,
+      // 制限値情報（重要）
+      tokenLimit: blockData.tokenLimitStatus?.limit,
+      // セッション時間（重要）
       startTime: blockData.startTime,
       endTime: blockData.endTime
     }
     
-    return JSON.stringify(relevantData)
+    // 安定性重視：微細な変化を無視する項目
+    // - costUSD: 微細に変化するため除外
+    // - burnRate: 計算値なので除外
+    // - remainingMinutes: 常に変化するため除外
+    // - percentUsed: 計算値なので除外
+    
+    return JSON.stringify(coreData)
+  }
+  
+  /**
+   * より詳細なハッシュ（パフォーマンス重視でない場合）
+   */
+  private hashBlockDataDetailed(blockData: any): string {
+    if (!blockData) {
+      return 'null'
+    }
+    
+    const detailedData = {
+      isActive: blockData.isActive,
+      totalTokens: blockData.totalTokens,
+      // 5分単位で丸める
+      remainingMinutes: Math.floor((blockData.projection?.remainingMinutes || 0) / 5) * 5,
+      tokenLimit: blockData.tokenLimitStatus?.limit,
+      startTime: blockData.startTime,
+      endTime: blockData.endTime
+    }
+    
+    return JSON.stringify(detailedData)
+  }
+
+  /**
+   * 計算時間を記録
+   */
+  private recordComputeTime(computeTime: number): void {
+    this.computeTimes.push(computeTime)
+    
+    // 最新10回分のみ保持
+    if (this.computeTimes.length > 10) {
+      this.computeTimes.shift()
+    }
+  }
+
+  /**
+   * データ変化パターンを記録
+   */
+  private recordDataChange(dataHash: string): void {
+    this.lastDataHashes.push(dataHash)
+    
+    // 最新20回分のみ保持
+    if (this.lastDataHashes.length > 20) {
+      this.lastDataHashes.shift()
+    }
+  }
+
+  /**
+   * 適応的TTLを更新
+   */
+  private updateAdaptiveTTL(): void {
+    // データ変化頻度を計算
+    const changeFrequency = this.calculateDataChangeFrequency()
+    
+    // 平均計算時間を計算
+    const avgComputeTime = this.calculateAverageComputeTime()
+    
+    // キャッシュヒット率を計算
+    const hitRate = this.cacheHits / Math.max(1, this.cacheHits + this.cacheMisses)
+    
+    // 適応的TTL計算
+    let newTTL = this.BASE_CACHE_TTL
+    
+    // データ変化が少ない場合はTTLを延長
+    if (changeFrequency < 0.3) {
+      newTTL *= 2 // 最大2倍
+    } else if (changeFrequency > 0.8) {
+      newTTL *= 0.5 // 最小0.5倍
+    }
+    
+    // 計算時間が長い場合はTTLを延長
+    if (avgComputeTime > 1000) {
+      newTTL *= 1.5
+    }
+    
+    // キャッシュヒット率が低い場合はTTLを短縮
+    if (hitRate < 0.2) {
+      newTTL *= 0.7
+    }
+    
+    // 最小5秒、最大120秒の範囲に制限
+    this.adaptiveTTL = Math.max(5000, Math.min(120000, newTTL))
+  }
+
+  /**
+   * データ変化頻度を計算（0-1の範囲）
+   */
+  private calculateDataChangeFrequency(): number {
+    if (this.lastDataHashes.length < 2) {
+      return 1.0 // 不明な場合は高頻度とみなす
+    }
+    
+    let changes = 0
+    for (let i = 1; i < this.lastDataHashes.length; i++) {
+      if (this.lastDataHashes[i] !== this.lastDataHashes[i - 1]) {
+        changes++
+      }
+    }
+    
+    return changes / (this.lastDataHashes.length - 1)
+  }
+
+  /**
+   * 平均計算時間を計算
+   */
+  private calculateAverageComputeTime(): number {
+    if (this.computeTimes.length === 0) {
+      return 0
+    }
+    
+    return this.computeTimes.reduce((sum, time) => sum + time, 0) / this.computeTimes.length
+  }
+
+  /**
+   * キャッシュメトリクスを取得
+   */
+  getCacheMetrics(): CacheMetrics {
+    return {
+      totalHits: this.cacheHits,
+      totalMisses: this.cacheMisses,
+      averageComputeTime: this.calculateAverageComputeTime(),
+      dataChangeFrequency: this.calculateDataChangeFrequency(),
+      adaptiveTTL: this.adaptiveTTL
+    }
   }
 
   /**

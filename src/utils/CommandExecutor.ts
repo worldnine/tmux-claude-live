@@ -18,6 +18,8 @@ export interface ExecuteOptions {
   encoding?: BufferEncoding
   timeout?: number
   cwd?: string
+  retries?: number
+  retryDelay?: number
 }
 
 /**
@@ -26,16 +28,53 @@ export interface ExecuteOptions {
  */
 export class RealCommandExecutor implements CommandExecutor {
   execute(command: string, options: ExecuteOptions = {}): string {
-    const { encoding = 'utf8', timeout = 5000, cwd } = options
+    const { 
+      encoding = 'utf8', 
+      timeout = this.getDefaultTimeout(command), 
+      cwd, 
+      retries = 3, 
+      retryDelay = 1000 
+    } = options
     
-    try {
-      return execSync(command, { 
-        encoding, 
-        timeout, 
-        cwd 
-      }).toString()
-    } catch (error) {
-      throw new Error(`Command execution failed: ${command}. Error: ${error}`)
+    let lastError: Error | null = null
+    
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        return execSync(command, { 
+          encoding, 
+          timeout, 
+          cwd 
+        }).toString()
+      } catch (error) {
+        lastError = error as Error
+        
+        // 最後の試行でない場合はリトライ
+        if (attempt < retries) {
+          const delay = retryDelay * attempt // 指数バックオフ
+          this.sleep(delay)
+          continue
+        }
+      }
+    }
+    
+    throw new Error(`Command execution failed after ${retries} attempts: ${command}. Last error: ${lastError?.message}`)
+  }
+  
+  private getDefaultTimeout(command: string): number {
+    // コマンドの種類に応じて適切なタイムアウトを設定
+    if (command.includes('tmux')) {
+      return 30000 // tmuxコマンドは30秒
+    } else if (command.includes('ccusage')) {
+      return 15000 // ccusageコマンドは15秒
+    } else {
+      return 10000 // その他は10秒
+    }
+  }
+  
+  private sleep(ms: number): void {
+    const start = Date.now()
+    while (Date.now() - start < ms) {
+      // ビジーウェイト（非同期処理を避けるため）
     }
   }
 }

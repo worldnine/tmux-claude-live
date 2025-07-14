@@ -8,6 +8,8 @@ import { CostFormatter } from '../formatters/CostFormatter'
 import { ColorResolver } from './ColorResolver'
 
 export class VariableManager {
+  private lastVariables: Record<string, string> = {}
+  
   constructor(private executor: CommandExecutor = new RealCommandExecutor()) {}
 
   setVariable(name: string, value: string): void {
@@ -46,9 +48,89 @@ export class VariableManager {
       return
     }
 
-    // 個別に実行する方法に変更（より確実）
-    for (const [name, value] of entries) {
-      this.setVariable(name, value)
+    // 差分更新を実行
+    const changedEntries = this.getChangedVariables(variables)
+    
+    if (changedEntries.length === 0) {
+      // 変更がない場合はスキップ
+      return
+    }
+
+    console.log(`[DiffUpdate] Updating ${changedEntries.length} of ${entries.length} variables`)
+
+    // 一括設定用のスクリプトを生成（変更された変数のみ）
+    const commands = changedEntries.map(([name, value]) => {
+      const escapedValue = value.replace(/\$/g, '\\$').replace(/"/g, '\\"')
+      return `set-option -g @ccusage_${name} "${escapedValue}"`
+    })
+
+    try {
+      // すべてのコマンドを一つのtmux呼び出しで実行（原子性確保）
+      const combinedCommand = commands.join(' \\; ')
+      this.executor.execute(`tmux ${combinedCommand}`, { timeout: 30000 })
+      
+      // 成功したら最新の変数を記録
+      this.lastVariables = { ...variables }
+    } catch (error) {
+      // 一括設定が失敗した場合は個別に設定（フォールバック）
+      console.warn('Bulk variable setting failed, falling back to individual setting:', error)
+      for (const [name, value] of changedEntries) {
+        this.setVariable(name, value)
+      }
+      
+      // 個別設定成功後も最新の変数を記録
+      this.lastVariables = { ...variables }
+    }
+  }
+
+  /**
+   * 変更された変数のみを取得
+   */
+  private getChangedVariables(newVariables: Record<string, string>): [string, string][] {
+    const changed: [string, string][] = []
+    
+    for (const [name, value] of Object.entries(newVariables)) {
+      if (this.lastVariables[name] !== value) {
+        changed.push([name, value])
+      }
+    }
+    
+    return changed
+  }
+
+  /**
+   * 強制全更新（差分更新をスキップ）
+   */
+  setBulkVariablesForced(variables: Record<string, string>): void {
+    const entries = Object.entries(variables)
+    if (entries.length === 0) {
+      return
+    }
+
+    console.log(`[ForceUpdate] Updating all ${entries.length} variables`)
+
+    // 一括設定用のスクリプトを生成
+    const commands = entries.map(([name, value]) => {
+      const escapedValue = value.replace(/\$/g, '\\$').replace(/"/g, '\\"')
+      return `set-option -g @ccusage_${name} "${escapedValue}"`
+    })
+
+    try {
+      // すべてのコマンドを一つのtmux呼び出しで実行（原子性確保）
+      const combinedCommand = commands.join(' \\; ')
+      this.executor.execute(`tmux ${combinedCommand}`, { timeout: 30000 })
+      
+      // 成功したら最新の変数を記録
+      this.lastVariables = { ...variables }
+    } catch (error) {
+      // 一括設定が失敗した場合は個別に設定（フォールバック）
+      console.warn('Bulk variable setting failed, falling back to individual setting:', error)
+      for (const [name, value] of entries) {
+        this.setVariable(name, value)
+      }
+      
+      // 個別設定成功後も最新の変数を記録
+      this.lastVariables = { ...variables }
     }
   }
 
@@ -101,15 +183,15 @@ export class VariableManager {
     variables['session_time_remaining'] = TimeFormatter.format(data.sessionRemainingMinutes, config.displayFormats.time)
 
     // 計算データの設定
-    variables['usage_percent'] = `${data.usagePercent.toFixed(2)}%`
-    variables['tokens_remaining'] = data.tokensRemaining.toString()
-    variables['burn_rate'] = data.burnRate.toString()
+    variables['usage_percent'] = data.usagePercent !== null ? `${data.usagePercent.toFixed(2)}%` : 'N/A'
+    variables['tokens_remaining'] = data.tokensRemaining !== null ? data.tokensRemaining.toString() : 'N/A'
+    variables['burn_rate'] = data.burnRate.toFixed(1)
     variables['cost_per_hour'] = CostFormatter.format(data.costPerHour, config.displayFormats.cost)
 
     // フォーマット済みデータの設定
     variables['total_tokens_formatted'] = TokenFormatter.format(data.totalTokens, config.displayFormats.token)
-    variables['tokens_remaining_formatted'] = TokenFormatter.format(data.tokensRemaining, config.displayFormats.token)
-    variables['token_limit_formatted'] = TokenFormatter.format(config.tokenLimit, config.displayFormats.token)
+    variables['tokens_remaining_formatted'] = data.tokensRemaining !== null ? TokenFormatter.format(data.tokensRemaining, config.displayFormats.token) : 'N/A'
+    variables['token_limit_formatted'] = config.tokenLimit !== null ? TokenFormatter.format(config.tokenLimit, config.displayFormats.token) : 'N/A'
 
     // メタデータの設定
     variables['warning_level'] = data.warningLevel
@@ -123,7 +205,7 @@ export class VariableManager {
     variables['remaining_seconds'] = data.remainingSeconds.toString()
     variables['session_remaining_seconds'] = data.sessionRemainingSeconds.toString()
     variables['token_limit'] = config.tokenLimit.toString()
-    variables['burn_rate_formatted'] = `${data.burnRate}/min`
+    variables['burn_rate_formatted'] = `${data.burnRate.toFixed(1)}/min`
 
     return variables
   }

@@ -45,6 +45,15 @@ start_daemon() {
   local update_interval="$1"
   local interval_ms
   
+  # 既存のデーモンを停止
+  stop_daemon
+  
+  # 既存のプロセスを確実に終了
+  pkill -f "daemon.ts" 2>/dev/null || true
+  
+  # 少し待つ
+  sleep 1
+  
   # 秒をミリ秒に変換
   interval_ms=$((update_interval * 1000))
   
@@ -167,6 +176,10 @@ initialize_plugin() {
   
   # 自動開始が有効な場合は即座に開始
   if [ "$CCUSAGE_AUTO_START" = "true" ]; then
+    # 既存のプロセスをクリーンアップ
+    pkill -f "daemon.ts" 2>/dev/null || true
+    sleep 1
+    
     start_daemon "$CCUSAGE_UPDATE_INTERVAL"
   fi
   

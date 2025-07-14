@@ -17,7 +17,7 @@ export interface Config {
 
 export class ConfigManager {
   private readonly DEFAULT_CONFIG: Config = {
-    updateInterval: 5,
+    updateInterval: 10, // 5秒→10秒に変更（負荷軽減）
     tokenLimit: 140000,
     warningThresholds: {
       usage: [70, 90],

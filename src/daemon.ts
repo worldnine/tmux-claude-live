@@ -1,12 +1,17 @@
 #!/usr/bin/env bun
 import { StatusUpdater } from './tmux/StatusUpdater'
+import { ProcessManager } from './utils/HotReloader'
 
 const statusUpdater = new StatusUpdater()
+const processManager = ProcessManager.getInstance()
 
 // コマンドライン引数の処理
 const args = process.argv.slice(2)
 const command = args[0]
 const intervalArg = args[1]
+
+// 開発モードの判定
+const isDevelopment = args.includes('--dev') || process.env.NODE_ENV === 'development'
 
 async function main() {
   switch (command) {
@@ -22,24 +27,47 @@ async function main() {
     case 'daemon':
       // デーモンとして開始
       const interval = intervalArg ? parseInt(intervalArg) : undefined
+      
+      if (isDevelopment) {
+        console.log('[DEV] Starting in development mode with hot reload...')
+        
+        // ホットリロードの設定
+        processManager.enableHotReload(true, ['src'])
+        processManager.setRestartCallback(() => {
+          console.log('[DEV] Restarting daemon due to file changes...')
+          statusUpdater.stopDaemon()
+          
+          // 少し待ってから再起動
+          setTimeout(() => {
+            statusUpdater.startDaemon(interval)
+          }, 1000)
+        })
+      }
+      
       console.log(`Starting daemon with ${interval || 'default'} interval...`)
       statusUpdater.startDaemon(interval)
       
       // プロセスの終了時にデーモンを停止
-      process.on('SIGTERM', () => {
-        console.log('Received SIGTERM, stopping daemon...')
+      const cleanup = () => {
+        console.log('Stopping daemon...')
         statusUpdater.stopDaemon()
+        processManager.cleanup()
         process.exit(0)
-      })
+      }
       
-      process.on('SIGINT', () => {
-        console.log('Received SIGINT, stopping daemon...')
-        statusUpdater.stopDaemon()
-        process.exit(0)
+      process.on('SIGTERM', cleanup)
+      process.on('SIGINT', cleanup)
+      process.on('uncaughtException', (error) => {
+        console.error('Uncaught exception:', error)
+        cleanup()
       })
       
       // デーモンを継続実行
-      console.log('Daemon started. Press Ctrl+C to stop.')
+      if (isDevelopment) {
+        console.log('Daemon started in development mode. File changes will trigger auto-restart.')
+      } else {
+        console.log('Daemon started. Press Ctrl+C to stop.')
+      }
       break
       
     case 'stop':

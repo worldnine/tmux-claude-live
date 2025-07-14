@@ -61,10 +61,11 @@ export class DataProcessor {
     let warningLevel: 'normal' | 'warning' | 'danger' | null = null
     
     if (blockData.tokenLimitStatus) {
-      // ccusageから制限値情報が取得できた場合
-      usagePercent = blockData.tokenLimitStatus.percentUsed
+      // ccusageから制限値情報が取得できた場合、実際のtotalTokensで計算
+      usagePercent = (totalTokens / blockData.tokenLimitStatus.limit) * 100
       tokensRemaining = Math.max(0, blockData.tokenLimitStatus.limit - totalTokens)
-      warningLevel = this.mapCcusageStatusToWarningLevel(blockData.tokenLimitStatus.status)
+      // 実際の使用率に基づいて警告レベルを決定（ccusageのstatusは無視）
+      warningLevel = this.determineWarningLevel(usagePercent)
     } else if (tokenLimit) {
       // フォールバック：独自計算
       usagePercent = (totalTokens / tokenLimit) * 100
