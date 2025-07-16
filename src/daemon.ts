@@ -10,8 +10,8 @@ const args = process.argv.slice(2)
 const command = args[0]
 const intervalArg = args[1]
 
-// 開発モードの判定
-const isDevelopment = args.includes('--dev') || process.env.NODE_ENV === 'development'
+// 開発モードの判定（明示的な--devフラグのみ。一般ユーザー保護のため）
+const isDevelopment = args.includes('--dev')
 
 async function main() {
   switch (command) {

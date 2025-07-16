@@ -205,7 +205,7 @@ export class VariableManager {
     variables['remaining_seconds'] = data.remainingSeconds.toString()
     variables['session_remaining_seconds'] = data.sessionRemainingSeconds.toString()
     variables['token_limit'] = config.tokenLimit.toString()
-    variables['burn_rate_formatted'] = `${data.burnRate.toFixed(1)}/min`
+    variables['burn_rate_formatted'] = TokenFormatter.formatWithUnit(data.burnRate, '/min')
 
     return variables
   }
