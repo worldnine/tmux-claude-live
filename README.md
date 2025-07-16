@@ -229,21 +229,7 @@ bun run src/daemon.ts clear
 
 ### TDD開発フロー
 
-このプロジェクトはTest-Driven Developmentを採用しています：
-
-```bash
-# テストの実行
-bun test
-
-# ウォッチモード
-bun test --watch
-
-# カバレッジ
-bun test --coverage
-
-# 特定のパターンをテスト
-bun test -t \"should format time\"
-```
+このプロジェクトはTest-Driven Developmentを採用しています。テストコマンドについては[テストセクション](#テスト)を参照してください。
 
 ### プロジェクト構造
 
@@ -263,11 +249,16 @@ tmux-claude-live/
 │   │   ├── ColorResolver.ts     # 色決定ロジック
 │   │   └── StatusUpdater.ts     # ステータス更新
 │   ├── utils/                   # ユーティリティ
-│   │   ├── Logger.ts            # ログ管理
+│   │   ├── CommandExecutor.ts   # コマンド実行抽象化
 │   │   ├── ErrorHandler.ts      # エラーハンドリング
-│   │   └── CommandExecutor.ts   # コマンド実行抽象化
+│   │   ├── HotReloader.ts       # ホットリロード機能
+│   │   ├── LockManager.ts       # プロセス排他制御
+│   │   └── Logger.ts            # ログ管理
 │   └── daemon.ts                # デーモン本体
 ├── test/                        # テストファイル
+│   ├── unit/                    # 単体テスト
+│   ├── integration/             # 統合テスト
+│   └── e2e/                     # E2Eテスト
 ├── docs/                        # ドキュメント
 ├── claude-live.tmux             # tmuxプラグイン本体
 └── scripts/                     # スクリプト
