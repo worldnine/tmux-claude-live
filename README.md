@@ -101,6 +101,16 @@ set -g status-right "#[fg=#{@ccusage_warning_color}]#{@ccusage_total_tokens_form
 - `@ccusage_token_limit` - Token limit
 - `@ccusage_token_limit_formatted` - Formatted limit (`140k`)
 
+#### Health Status (New!)
+- `@ccusage_daemon_health` - Overall health status (`healthy`/`degraded`/`unhealthy`)
+- `@ccusage_daemon_health_is_healthy` - Boolean health indicator (`true`/`false`)
+- `@ccusage_daemon_uptime` - Daemon uptime (`2h15m`)
+- `@ccusage_daemon_uptime_hours` - Uptime in hours (`2.3`)
+- `@ccusage_error_rate` - Error rate percentage (`1.2%`)
+- `@ccusage_memory_usage` - Memory usage (`32.4MB`)
+- `@ccusage_last_self_heal` - Last self-healing time (`2025-07-25 14:30:45` or `Never`)
+- `@ccusage_health_issues` - Current health issues summary (`None` or issue description)
+
 #### Burn Rate Information
 - `@ccusage_burn_rate` - Token burn rate (raw value)
 - `@ccusage_burn_rate_formatted` - Formatted burn rate (`184/min`)
@@ -132,6 +142,15 @@ set -g status-right "#[fg=#{@ccusage_warning_color}]Claude: #{@ccusage_total_tok
 ```bash
 set -g status-right "#[fg=#{@ccusage_warning_color}]#{@ccusage_total_tokens_formatted}/#{@ccusage_token_limit_formatted}#[default] | T:#{@ccusage_time_remaining} S:#{@ccusage_session_time_remaining} | %H:%M"
 set -g status-right-length 150
+```
+
+#### With Health Monitoring
+```bash
+# Simple health indicator
+set -g status-right "#{@ccusage_total_tokens_formatted}/#{@ccusage_token_limit_formatted} | ⚡#{@ccusage_daemon_health} | %H:%M"
+
+# Detailed health status
+set -g status-right "#[fg=#{@ccusage_warning_color}]#{@ccusage_total_tokens_formatted}/#{@ccusage_token_limit_formatted}#[default] | 💚#{@ccusage_daemon_health} #{@ccusage_daemon_uptime} | %H:%M"
 ```
 
 #### Multiple Locations
@@ -216,6 +235,26 @@ The plugin automatically sets up these key bindings:
 
 - `prefix + C` - Show Claude Live status
 - `prefix + Alt-C` - Show Claude Live configuration
+
+### Variable Inspection
+
+You can easily check all tmux variables set by Claude Live:
+
+```bash
+# Show all Claude Live variables in a formatted view
+bash claude-live.tmux vars
+# or
+bash claude-live.tmux variables
+# or  
+bash claude-live.tmux show-vars
+```
+
+This displays:
+- 📊 **Basic Information**: Active status, token usage, limits, costs
+- ⏰ **Time Information**: Remaining time, session time, burn rate
+- 🏥 **Health Status**: Daemon health, uptime, error rates, memory usage
+- ⚠️ **Warning Information**: Warning levels, colors, health issues
+- 💡 **Usage Examples**: How to use variables in tmux configuration
 
 ## Troubleshooting
 

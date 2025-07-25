@@ -360,6 +360,68 @@ complete_initialization() {
   echo "Claude Live initialization completed"
 }
 
+# 変数の表示
+show_variables() {
+  echo "Claude Live Variables:"
+  echo "====================="
+  
+  local bun_executable
+  bun_executable=$(find_bun_executable)
+  if [ $? -ne 0 ]; then
+    echo "❌ Error: bun executable not found. Please install bun."
+    return 1
+  fi
+  
+  # 全てのccusage変数を取得
+  local variables
+  variables=$(tmux show-options -g 2>/dev/null | grep '@ccusage_' || true)
+  
+  if [ -z "$variables" ]; then
+    echo "No Claude Live variables are currently set."
+    echo ""
+    echo "To initialize variables, run: bash claude-live.tmux update"
+    return 0
+  fi
+  
+  # 基本情報
+  echo ""
+  echo "📊 Basic Information:"
+  echo "  Active Block:    $(tmux show-option -gqv @ccusage_is_active 2>/dev/null || echo 'N/A')"
+  echo "  Total Tokens:    $(tmux show-option -gqv @ccusage_total_tokens_formatted 2>/dev/null || echo 'N/A')"
+  echo "  Token Limit:     $(tmux show-option -gqv @ccusage_token_limit_formatted 2>/dev/null || echo 'N/A')"
+  echo "  Usage:           $(tmux show-option -gqv @ccusage_usage_percent 2>/dev/null || echo 'N/A')"
+  echo "  Cost:            $(tmux show-option -gqv @ccusage_cost_current 2>/dev/null || echo 'N/A')"
+  
+  # 時間情報
+  echo ""
+  echo "⏰ Time Information:"
+  echo "  Time Remaining:  $(tmux show-option -gqv @ccusage_time_remaining 2>/dev/null || echo 'N/A')"
+  echo "  Session Time:    $(tmux show-option -gqv @ccusage_session_time_remaining 2>/dev/null || echo 'N/A')"
+  echo "  Burn Rate:       $(tmux show-option -gqv @ccusage_burn_rate_formatted 2>/dev/null || echo 'N/A')"
+  
+  # ヘルス情報
+  echo ""
+  echo "🏥 Health Status:"
+  echo "  Daemon Health:   $(tmux show-option -gqv @ccusage_daemon_health 2>/dev/null || echo 'N/A')"
+  echo "  Uptime:          $(tmux show-option -gqv @ccusage_daemon_uptime 2>/dev/null || echo 'N/A')"
+  echo "  Error Rate:      $(tmux show-option -gqv @ccusage_error_rate 2>/dev/null || echo 'N/A')"
+  echo "  Memory Usage:    $(tmux show-option -gqv @ccusage_memory_usage 2>/dev/null || echo 'N/A')"
+  echo "  Last Self-Heal:  $(tmux show-option -gqv @ccusage_last_self_heal 2>/dev/null || echo 'N/A')"
+  
+  # 警告情報
+  echo ""
+  echo "⚠️  Warning Information:"
+  echo "  Warning Level:   $(tmux show-option -gqv @ccusage_warning_level 2>/dev/null || echo 'N/A')"
+  echo "  Warning Color:   $(tmux show-option -gqv @ccusage_warning_color_name 2>/dev/null || echo 'N/A')"
+  echo "  Health Issues:   $(tmux show-option -gqv @ccusage_health_issues 2>/dev/null || echo 'N/A')"
+  
+  echo ""
+  echo "💡 Usage Examples:"
+  echo "  Display in status: #{@ccusage_total_tokens_formatted}/#{@ccusage_token_limit_formatted} (#{@ccusage_usage_percent})"
+  echo "  Health status:     #{@ccusage_daemon_health} - #{@ccusage_daemon_uptime}"
+  echo "  Warning color:     #[fg=#{@ccusage_warning_color}]#{@ccusage_usage_percent}#[default]"
+}
+
 # メイン処理
 main() {
   case "$1" in
@@ -384,6 +446,9 @@ main() {
       sleep 1
       load_plugin_settings
       start_daemon "$CCUSAGE_UPDATE_INTERVAL"
+      ;;
+    vars|variables|show-vars)
+      show_variables
       ;;
     *)
       # 引数がない場合は初期化
