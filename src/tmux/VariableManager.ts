@@ -7,6 +7,18 @@ import { TokenFormatter } from '../formatters/TokenFormatter'
 import { CostFormatter } from '../formatters/CostFormatter'
 import { ColorResolver } from './ColorResolver'
 
+export interface HealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  isHealthy: boolean
+  issues: string[]
+  metrics: {
+    uptimeHours: number
+    errorRate: number
+    memoryUsageMB: number
+  }
+  lastSelfHealTime: Date | null
+}
+
 export class VariableManager {
   private lastVariables: Record<string, string> = {}
   
@@ -207,6 +219,50 @@ export class VariableManager {
     variables['token_limit'] = config.tokenLimit.toString()
     variables['burn_rate_formatted'] = TokenFormatter.formatWithUnit(data.burnRate, '/min')
 
+    return variables
+  }
+
+  /**
+   * ヘルス状態のtmux変数を生成
+   */
+  generateHealthVariables(healthStatus: HealthStatus): Record<string, string> {
+    const variables: Record<string, string> = {}
+
+    // 基本的なヘルス状態
+    variables['daemon_health'] = healthStatus.status
+    variables['daemon_health_is_healthy'] = healthStatus.isHealthy.toString()
+    
+    // メトリクス
+    variables['daemon_uptime'] = TimeFormatter.formatHours(healthStatus.metrics.uptimeHours)
+    variables['daemon_uptime_hours'] = healthStatus.metrics.uptimeHours.toString()
+    variables['error_rate'] = `${healthStatus.metrics.errorRate.toFixed(1)}%`
+    variables['memory_usage'] = `${healthStatus.metrics.memoryUsageMB.toFixed(1)}MB`
+    
+    // 最後の自己修復時刻
+    variables['last_self_heal'] = healthStatus.lastSelfHealTime 
+      ? healthStatus.lastSelfHealTime.toISOString().slice(0, 19).replace('T', ' ')
+      : 'Never'
+    
+    // 問題の要約（最初の3つまで）
+    const issuesSummary = healthStatus.issues.length > 0 
+      ? healthStatus.issues.slice(0, 3).join('; ')
+      : 'None'
+    variables['health_issues'] = issuesSummary
+
+    return variables
+  }
+
+  /**
+   * 通常の変数とヘルス変数を統合
+   */
+  generateVariableMapWithHealth(data: ProcessedData, config: Config, healthStatus?: HealthStatus): Record<string, string> {
+    const variables = this.generateVariableMap(data, config)
+    
+    if (healthStatus) {
+      const healthVariables = this.generateHealthVariables(healthStatus)
+      Object.assign(variables, healthVariables)
+    }
+    
     return variables
   }
 }

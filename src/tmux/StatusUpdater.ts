@@ -3,10 +3,12 @@ import { DataProcessor } from '../core/DataProcessor'
 import { VariableManager } from './VariableManager'
 import { ConfigManager } from '../core/ConfigManager'
 import { LockManager } from '../utils/LockManager'
+import { HealthChecker } from '../utils/HealthChecker'
 import { logger } from '../utils/Logger'
 import { errorHandler } from '../utils/ErrorHandler'
 import type { ProcessedData } from '../core/DataProcessor'
 import type { Config } from '../core/ConfigManager'
+import type { HealthCheckResult } from '../utils/HealthChecker'
 
 export interface StatusInfo {
   isRunning: boolean
@@ -19,6 +21,18 @@ export interface StatusInfo {
   errorCount: number
   lastErrorTime: number | null
   recoveryCount: number
+}
+
+export interface HealthStatus {
+  status: 'healthy' | 'degraded' | 'unhealthy'
+  isHealthy: boolean
+  issues: string[]
+  metrics: {
+    uptimeHours: number
+    errorRate: number
+    memoryUsageMB: number
+  }
+  lastSelfHealTime: Date | null
 }
 
 interface CacheEntry {
@@ -41,15 +55,25 @@ interface CacheMetrics {
 }
 
 export class StatusUpdater {
+  static readonly HEALTH_CHECK_INTERVAL = 6 * 60 * 60 * 1000 // 6 hours in milliseconds
+  
   private ccusageClient: CcusageClient
   private dataProcessor: DataProcessor
   private variableManager: VariableManager
   private configManager: ConfigManager
   private lockManager: LockManager
+  private healthChecker: HealthChecker
   
   private intervalId: NodeJS.Timeout | null = null
+  private healthCheckIntervalId: NodeJS.Timeout | null = null
   private updateCount: number = 0
   private lastUpdateTime: number | null = null
+  
+  // ヘルスチェック関連
+  private startTime: number = Date.now()
+  private errorCount: number = 0
+  private selfHealingCount: number = 0
+  private lastSelfHealTime: Date | null = null
   
   // パフォーマンス最適化: キャッシュとメトリクス
   private cache: CacheEntry | null = null
@@ -76,6 +100,7 @@ export class StatusUpdater {
     this.variableManager = variableManager || new VariableManager()
     this.configManager = configManager || new ConfigManager()
     this.lockManager = new LockManager('tmux-claude-live-daemon')
+    this.healthChecker = new HealthChecker()
   }
 
   async updateOnce(): Promise<void> {
@@ -102,7 +127,11 @@ export class StatusUpdater {
         this.cache.lastAccessTime = Date.now()
         
         logger.debug('Cache hit - using cached variables')
-        await this.setBulkVariablesWithRetry(this.cache.variableMap)
+        // キャッシュされた変数にヘルス情報を追加
+        const healthStatus = this.getHealthStatus()
+        const healthVariables = this.variableManager.generateHealthVariables(healthStatus)
+        const updatedVariableMap = { ...this.cache.variableMap, ...healthVariables }
+        await this.setBulkVariablesWithRetry(updatedVariableMap)
         this.lastUpdateTime = Date.now()
         
         const duration = Date.now() - startTime
@@ -119,7 +148,8 @@ export class StatusUpdater {
       logger.debug('Cache miss - processing new data')
       
       const processedData = this.dataProcessor.processBlockData(blockData, config.tokenLimit)
-      const variableMap = this.variableManager.generateVariableMap(processedData, config)
+      const healthStatus = this.getHealthStatus()
+      const variableMap = this.variableManager.generateVariableMapWithHealth(processedData, config, healthStatus)
       
       // 計算時間を記録
       const computeTime = Date.now() - startTime
@@ -571,5 +601,131 @@ export class StatusUpdater {
    */
   private sleep(ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, ms))
+  }
+
+  // ヘルスチェック関連のメソッド
+  
+  getHealthStatus(): HealthStatus {
+    const uptimeHours = (Date.now() - this.startTime) / (1000 * 60 * 60)
+    const errorRate = this.updateCount > 0 ? (this.errorCount / this.updateCount) * 100 : 0
+    
+    const healthCheckResult = this.healthChecker.performHealthCheck({
+      startTime: this.startTime,
+      errorCount: this.errorCount,
+      totalRequests: this.updateCount,
+      currentBurnRate: this.getCurrentBurnRate()
+    })
+    
+    return {
+      status: healthCheckResult.status,
+      isHealthy: healthCheckResult.isHealthy,
+      issues: healthCheckResult.issues,
+      metrics: {
+        uptimeHours: Number(uptimeHours.toFixed(1)),
+        errorRate: Number(errorRate.toFixed(2)),
+        memoryUsageMB: healthCheckResult.metrics.memoryUsageMB
+      },
+      lastSelfHealTime: this.lastSelfHealTime
+    }
+  }
+  
+  async performHealthCheck(): Promise<HealthCheckResult> {
+    logger.info('Performing scheduled health check')
+    
+    const healthResult = this.healthChecker.performHealthCheck({
+      startTime: this.startTime,
+      errorCount: this.errorCount,
+      totalRequests: this.updateCount,
+      currentBurnRate: this.getCurrentBurnRate()
+    })
+    
+    if (!healthResult.isHealthy) {
+      logger.warn('Health check detected issues', { 
+        status: healthResult.status,
+        issues: healthResult.issues 
+      })
+      
+      // 異常検出時は自己修復を実行
+      await this.performSelfHealing()
+    }
+    
+    return healthResult
+  }
+  
+  async performSelfHealing(): Promise<void> {
+    logger.info('Starting self-healing process')
+    
+    try {
+      // 1. キャッシュのクリア
+      this.clearCache()
+      
+      // 2. 統計情報のリセット
+      this.resetStatistics()
+      
+      // 3. ccusageから最新データを強制取得
+      await this.forceUpdateFromCcusage()
+      
+      this.selfHealingCount++
+      this.lastSelfHealTime = new Date()
+      
+      logger.info('Self-healing completed successfully', {
+        selfHealingCount: this.selfHealingCount,
+        timestamp: this.lastSelfHealTime
+      })
+    } catch (error) {
+      logger.error('Self-healing failed', error)
+      throw error
+    }
+  }
+  
+  getSelfHealingCount(): number {
+    return this.selfHealingCount
+  }
+  
+  getHealthCheckInterval(): number {
+    return StatusUpdater.HEALTH_CHECK_INTERVAL
+  }
+  
+  getCacheSize(): number {
+    return this.cache ? 1 : 0
+  }
+  
+  getStatistics() {
+    return {
+      cacheHits: this.cacheHits,
+      cacheMisses: this.cacheMisses,
+      errorCount: this.errorCount,
+      updateCount: this.updateCount
+    }
+  }
+  
+  private getCurrentBurnRate(): number {
+    // 現在のburn rateを取得（最後に処理されたデータから）
+    if (this.cache && this.cache.processedData) {
+      return this.cache.processedData.burnRate
+    }
+    return 0
+  }
+  
+  private clearCache(): void {
+    this.cache = null
+    logger.debug('Cache cleared during self-healing')
+  }
+  
+  private resetStatistics(): void {
+    this.cacheHits = 0
+    this.cacheMisses = 0
+    // エラーカウントは残す（健康診断で使用するため）
+    logger.debug('Statistics reset during self-healing')
+  }
+  
+  private async forceUpdateFromCcusage(): Promise<void> {
+    const config = await this.loadConfigWithRetry()
+    const blockData = await this.getBlockDataWithRetry(config.tokenLimit)
+    const processedData = this.dataProcessor.processBlockData(blockData, config.tokenLimit)
+    const variableMap = this.variableManager.generateVariableMap(processedData, config)
+    
+    await this.setBulkVariablesWithRetry(variableMap)
+    logger.debug('Forced update from ccusage completed')
   }
 }
