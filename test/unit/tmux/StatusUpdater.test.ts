@@ -1,4 +1,4 @@
-import { describe, expect, test, beforeEach, afterEach, vi } from 'vitest'
+import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { StatusUpdater } from '../../../src/tmux/StatusUpdater'
 import { CcusageClient } from '../../../src/core/CcusageClient'
 import { DataProcessor } from '../../../src/core/DataProcessor'
@@ -6,22 +6,9 @@ import { ConfigManager } from '../../../src/core/ConfigManager'
 import { VariableManager } from '../../../src/tmux/VariableManager'
 import { LockManager } from '../../../src/utils/LockManager'
 import { MockCommandExecutor } from '../../../src/utils/CommandExecutor'
+import { HealthChecker } from '../../../src/utils/HealthChecker'
 
-// 外部依存をモック
-vi.mock('../../../src/utils/LockManager')
-vi.mock('../../../src/utils/Logger', () => ({
-  logger: {
-    debug: vi.fn(),
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn()
-  }
-}))
-vi.mock('../../../src/utils/ErrorHandler', () => ({
-  errorHandler: {
-    handleError: vi.fn().mockResolvedValue(true)
-  }
-}))
+// bunテスト環境用のモック設定は後で実装
 
 describe('StatusUpdater', () => {
   let statusUpdater: StatusUpdater
@@ -750,6 +737,151 @@ describe('StatusUpdater', () => {
       // Assert
       expect(statusUpdater.getUpdateCount()).toBe(1)
       expect(statusUpdater.getLastUpdateTime()).toBeGreaterThanOrEqual(beforeTime)
+    })
+  })
+
+  describe('health check integration', () => {
+    let healthChecker: HealthChecker
+
+    beforeEach(() => {
+      healthChecker = new HealthChecker()
+      // StatusUpdaterにhealthCheckerを注入する必要がある（後で実装）
+    })
+
+    test('should perform health check periodically', async () => {
+      // Arrange
+      const mockBlockData = {
+        isActive: true,
+        totalTokens: 25000,
+        burnRate: { tokensPerMinute: 200 },
+        tokenLimitStatus: { limit: 140000 }
+      }
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', JSON.stringify({ blocks: [mockBlockData] }))
+
+      // Act
+      await statusUpdater.updateOnce()
+      
+      // StatusUpdaterがHealthCheckerを使用して健康診断を実行することを確認
+      const healthStatus = statusUpdater.getHealthStatus()
+
+      // Assert
+      expect(healthStatus).toBeDefined()
+      expect(healthStatus.status).toMatch(/healthy|degraded|unhealthy/)
+    })
+
+    test('should detect abnormal burn rate and trigger self-healing', async () => {
+      // Arrange - 異常なburn rateを含むデータ
+      const mockBlockData = {
+        isActive: true,
+        totalTokens: 25000,
+        burnRate: { tokensPerMinute: 33537.3 }, // 異常値
+        tokenLimitStatus: { limit: 140000 }
+      }
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', JSON.stringify({ blocks: [mockBlockData] }))
+
+      // Act
+      await statusUpdater.updateOnce()
+      
+      // Assert - 自己修復が実行されたことを確認
+      const healthStatus = statusUpdater.getHealthStatus()
+      expect(healthStatus.issues).toContain('Burn rate is abnormal: 33537.3')
+      expect(healthStatus.lastSelfHealTime).toBeDefined()
+    })
+
+    test('should track daemon uptime and health metrics', async () => {
+      // Arrange
+      const mockBlockData = {
+        isActive: true,
+        totalTokens: 25000,
+        burnRate: { tokensPerMinute: 200 },
+        tokenLimitStatus: { limit: 140000 }
+      }
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', JSON.stringify({ blocks: [mockBlockData] }))
+
+      // Act
+      statusUpdater.startDaemon(1000) // デーモン開始
+      await statusUpdater.updateOnce()
+      
+      const healthStatus = statusUpdater.getHealthStatus()
+
+      // Assert
+      expect(healthStatus.metrics.uptimeHours).toBeGreaterThanOrEqual(0)
+      expect(healthStatus.metrics.errorRate).toBeGreaterThanOrEqual(0)
+      expect(healthStatus.metrics.memoryUsageMB).toBeGreaterThan(0)
+      
+      statusUpdater.stopDaemon()
+    })
+
+    test('should perform self-healing when multiple errors occur', async () => {
+      // Arrange - 複数のエラーを発生させる
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', 'invalid json')
+
+      // Act - 連続してエラーを発生させる
+      await statusUpdater.updateOnce().catch(() => {}) // エラーを無視
+      await statusUpdater.updateOnce().catch(() => {})
+      await statusUpdater.updateOnce().catch(() => {})
+
+      // Assert - 自己修復が実行されたことを確認
+      expect(statusUpdater.getSelfHealingCount()).toBeGreaterThan(0)
+    })
+
+    test('should schedule periodic health checks every 6 hours', () => {
+      // Arrange
+      const spy = vi.spyOn(statusUpdater, 'performHealthCheck')
+
+      // Act
+      statusUpdater.startDaemon(1000)
+      
+      // Assert - 6時間タイマーが設定されていることを確認
+      expect(statusUpdater.getHealthCheckInterval()).toBe(6 * 60 * 60 * 1000) // 6 hours in ms
+      
+      statusUpdater.stopDaemon()
+    })
+
+    test('should clear internal state during self-healing', async () => {
+      // Arrange
+      const mockBlockData = {
+        isActive: true,
+        totalTokens: 25000,
+        burnRate: { tokensPerMinute: 200 },
+        tokenLimitStatus: { limit: 140000 }
+      }
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', JSON.stringify({ blocks: [mockBlockData] }))
+
+      // 事前にキャッシュとカウンターを設定
+      await statusUpdater.updateOnce()
+      const initialUpdateCount = statusUpdater.getUpdateCount()
+
+      // Act - 自己修復を実行
+      await statusUpdater.performSelfHealing()
+
+      // Assert - 内部状態がリセットされていることを確認
+      expect(statusUpdater.getCacheSize()).toBe(0)
+      expect(statusUpdater.getStatistics().cacheHits).toBe(0)
+      expect(statusUpdater.getStatistics().cacheMisses).toBe(0)
+    })
+
+    test('should generate health status tmux variables', async () => {
+      // Arrange
+      const mockBlockData = {
+        isActive: true,
+        totalTokens: 25000,
+        burnRate: { tokensPerMinute: 200 },
+        tokenLimitStatus: { limit: 140000 }
+      }
+      mockExecutor.setResponse('ccusage blocks --active --json --token-limit 140000', JSON.stringify({ blocks: [mockBlockData] }))
+
+      // Act
+      await statusUpdater.updateOnce()
+
+      // Assert - 健康状態変数が設定されていることを確認
+      const tmuxVariables = mockExecutor.getExecutedCommands()
+        .filter(cmd => cmd.includes('set-option'))
+        .join(' ')
+
+      expect(tmuxVariables).toContain('@ccusage_daemon_health')
+      expect(tmuxVariables).toContain('@ccusage_daemon_uptime')
+      expect(tmuxVariables).toContain('@ccusage_error_rate')
     })
   })
 })

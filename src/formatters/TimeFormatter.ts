@@ -21,6 +21,21 @@ export class TimeFormatter {
     return this.format(minutes, 'compact')
   }
 
+  static formatHours(hours: number): string {
+    const wholeHours = Math.floor(hours)
+    const minutes = Math.round((hours - wholeHours) * 60)
+    
+    if (wholeHours === 0) {
+      return `${minutes}m`
+    }
+    
+    if (minutes === 0) {
+      return `${wholeHours}h`
+    }
+    
+    return `${wholeHours}h${minutes}m`
+  }
+
   static parseHoursAndMinutes(timeString: string): number {
     try {
       const hourMatch = timeString.match(/(\d+)h/)
