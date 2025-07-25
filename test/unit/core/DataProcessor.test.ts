@@ -281,4 +281,94 @@ describe('DataProcessor', () => {
       expect(costPerHour).toBe(0)
     })
   })
+
+  describe('validateAndCorrectBurnRate', () => {
+    test('should accept normal burn rate values', () => {
+      expect(processor.validateAndCorrectBurnRate(100)).toBe(100)
+      expect(processor.validateAndCorrectBurnRate(0)).toBe(0)
+      expect(processor.validateAndCorrectBurnRate(4999.9)).toBe(4999.9)
+    })
+
+    test('should correct abnormal burn rate values', () => {
+      // 異常に高い値
+      expect(processor.validateAndCorrectBurnRate(33537.3)).toBe(0)
+      expect(processor.validateAndCorrectBurnRate(10001)).toBe(0)
+      expect(processor.validateAndCorrectBurnRate(999999)).toBe(0)
+      
+      // 負の値
+      expect(processor.validateAndCorrectBurnRate(-100)).toBe(0)
+      expect(processor.validateAndCorrectBurnRate(-1)).toBe(0)
+    })
+
+    test('should handle special numeric values', () => {
+      expect(processor.validateAndCorrectBurnRate(NaN)).toBe(0)
+      expect(processor.validateAndCorrectBurnRate(Infinity)).toBe(0)
+      expect(processor.validateAndCorrectBurnRate(-Infinity)).toBe(0)
+    })
+
+    test('should use last valid value when available', () => {
+      // まず正常値を設定
+      processor.validateAndCorrectBurnRate(150)
+      
+      // 異常値が来たときは前回の正常値を返す
+      expect(processor.validateAndCorrectBurnRate(33537.3)).toBe(150)
+      expect(processor.validateAndCorrectBurnRate(-100)).toBe(150)
+      expect(processor.validateAndCorrectBurnRate(NaN)).toBe(150)
+    })
+
+    test('should update last valid value when new valid value is provided', () => {
+      // 初期値を設定
+      processor.validateAndCorrectBurnRate(100)
+      
+      // 新しい正常値で更新
+      processor.validateAndCorrectBurnRate(200)
+      
+      // 異常値が来たときは新しい値を使用
+      expect(processor.validateAndCorrectBurnRate(99999)).toBe(200)
+    })
+  })
+
+  describe('processBlockData with validation', () => {
+    test('should validate and correct burn rate in processed data', () => {
+      // Arrange
+      const blockData: BlockData = {
+        isActive: true,
+        totalTokens: 12500,
+        costUSD: 1.85,
+        projection: { remainingMinutes: 135 },
+        burnRate: { tokensPerMinute: 33537.3 }, // 異常値
+        tokenCounts: {
+          inputTokens: 5000,
+          outputTokens: 7500
+        }
+      }
+
+      // Act
+      const result = processor.processBlockData(blockData, 140000)
+
+      // Assert
+      expect(result.burnRate).toBe(0) // 異常値は0に補正される
+    })
+
+    test('should use validated burn rate for cost calculation', () => {
+      // Arrange
+      const blockData: BlockData = {
+        isActive: true,
+        totalTokens: 12500,
+        costUSD: 1.85,
+        projection: { remainingMinutes: 135 },
+        burnRate: { tokensPerMinute: 99999 }, // 異常値
+        tokenCounts: {
+          inputTokens: 5000,
+          outputTokens: 7500
+        }
+      }
+
+      // Act
+      const result = processor.processBlockData(blockData, 140000)
+
+      // Assert
+      expect(result.costPerHour).toBe(0) // 異常なburn rateは0になるので、コストも0
+    })
+  })
 })

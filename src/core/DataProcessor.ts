@@ -38,6 +38,9 @@ export interface ProcessedData {
 export class DataProcessor {
   private readonly COST_PER_TOKEN = 0.000015  // $0.000015 per token
   private readonly BLOCK_DURATION_MINUTES = 300  // 5時間 = 300分
+  private readonly BURN_RATE_MAX = 10000  // 10k tokens/min以上は異常
+  
+  private lastValidValues: Map<string, number> = new Map()
   
   processBlockData(blockData: BlockData | null, tokenLimit: number | null): ProcessedData {
     // nullチェック
@@ -49,7 +52,7 @@ export class DataProcessor {
     const totalTokens = Math.max(0, blockData.totalTokens)
     const costUSD = Math.max(0, blockData.costUSD)
     const remainingMinutes = Math.max(0, blockData.projection.remainingMinutes)
-    const burnRate = Math.max(0, blockData.burnRate.tokensPerMinute)
+    const burnRate = this.validateAndCorrectBurnRate(blockData.burnRate.tokensPerMinute)
     
     // セッション残り時間の計算
     const sessionRemainingMinutes = this.calculateSessionRemainingMinutes(blockData)
@@ -175,5 +178,42 @@ export class DataProcessor {
       costPerHour: 0,
       warningLevel: tokenLimit ? 'normal' : null
     }
+  }
+  
+  /**
+   * バーンレートの妥当性を検証し、異常値を補正する
+   */
+  validateAndCorrectBurnRate(burnRate: number): number {
+    // 数値の妥当性チェック
+    if (!Number.isFinite(burnRate)) {
+      console.warn('Abnormal burn rate detected (not finite):', burnRate)
+      return this.getLastValidBurnRate()
+    }
+    
+    // 負の値チェック
+    if (burnRate < 0) {
+      console.warn('Abnormal burn rate detected (negative):', burnRate)
+      return this.getLastValidBurnRate()
+    }
+    
+    // 上限チェック
+    if (burnRate > this.BURN_RATE_MAX) {
+      console.warn('Abnormal burn rate detected (too high):', burnRate)
+      return this.getLastValidBurnRate()
+    }
+    
+    // 正常値を記録して返す
+    this.lastValidValues.set('burnRate', burnRate)
+    return burnRate
+  }
+  
+  private getLastValidBurnRate(): number {
+    const lastValid = this.lastValidValues.get('burnRate')
+    if (lastValid !== undefined) {
+      console.info('Using last valid burn rate:', lastValid)
+      return lastValid
+    }
+    console.info('No last valid burn rate available, returning 0')
+    return 0
   }
 }
