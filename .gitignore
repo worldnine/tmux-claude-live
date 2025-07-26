@@ -42,3 +42,6 @@ backup/
 # Temporary files
 tmp/
 temp/
+
+# Worktree directories for AI parallel development
+/.worktree/

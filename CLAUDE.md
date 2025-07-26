@@ -172,6 +172,53 @@ tmux-claude-live/
 
 ## Development Workflow
 
+### Git Worktreeベース開発運用
+
+プロジェクトでは、AI支援による並行開発を効率化するため、Git Worktreeベースの開発環境を採用しています。
+
+#### ディレクトリ構造
+
+```
+tmux-claude-live/                 # mainブランチ（安定版開発）
+├── .git/
+├── .gitignore                    # /.worktree/ を除外
+├── src/                          # mainブランチでの開発
+├── test/
+├── package.json
+└── .worktree/                    # 実験的・並行開発領域
+    ├── reliability-watchdog/     # Watchdog機能開発
+    ├── optimization/             # パフォーマンス最適化
+    └── testing/                  # 新アーキテクチャ実験
+```
+
+#### 運用原則
+
+1. **メインディレクトリ**: mainブランチでの安定機能開発・修正
+2. **.worktree/**: 実験的機能や大規模改修用の隔離環境
+3. **AI並行開発**: 複数のAIツールが同時に異なる機能を開発可能
+4. **ブランチ命名**: `feature/reliability-watchdog`, `feature/optimization` など
+
+#### Worktree管理
+
+```bash
+# 新しいworktreeの作成
+git worktree add .worktree/feature-name feature/feature-name
+
+# worktreeの確認
+git worktree list
+
+# 不要なworktreeの削除
+git worktree remove .worktree/feature-name
+```
+
+#### 各Worktreeの責任
+
+- **各worktreeにCLAUDE.mdを配置**: ブランチの目的と実装対象を明記
+- **独立したテスト環境**: 相互影響なしの並行開発
+- **統合時の責任分担**: 機能完成後のmainブランチへのマージ
+
+### TDD開発フロー
+
 新機能開発は以下の流れで進めます：
 
 1. **テスト作成**: 失敗するテストを先に書く
