@@ -1,7 +1,7 @@
 {
   "name": "tmux-claude-live",
-  "version": "0.2.0",
-  "description": "Real-time Claude Code usage monitor for tmux status bar using ccusage --live",
+  "version": "0.3.0",
+  "description": "Real-time Claude Code usage monitor with Reliability Watchdog - prevents stale data display",
   "main": "dist/index.js",
   "type": "module",
   "scripts": {
@@ -23,9 +23,14 @@
     "daemon:status": "bun run src/daemon.ts status",
     "daemon:once": "bun run src/daemon.ts once",
     "daemon:clear": "bun run src/daemon.ts clear",
+    "daemon:enhanced": "bun run src/daemon-enhanced.ts",
+    "daemon:enhanced:start": "bun run src/daemon-enhanced.ts start",
+    "daemon:enhanced:status": "bun run src/daemon-enhanced.ts status",
+    "daemon:enhanced:recover": "bun run src/daemon-enhanced.ts recover",
+    "daemon:enhanced:once": "bun run src/daemon-enhanced.ts once",
     "install:tmux": "bun run build && echo 'run-shell \"$PWD/claude-live.tmux\"' >> ~/.tmux.conf"
   },
-  "keywords": ["tmux", "claude", "monitoring", "tokens", "usage", "ccusage", "variables"],
+  "keywords": ["tmux", "claude", "monitoring", "tokens", "usage", "ccusage", "variables", "reliability", "watchdog", "freshness", "stale-data"],
   "author": "",
   "license": "MIT",
   "devDependencies": {

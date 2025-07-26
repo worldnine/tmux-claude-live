@@ -9,6 +9,8 @@
 1. **高いカスタマイズ性**: ユーザーがtmux.confで表示内容を自由に設定可能
 2. **tmuxネイティブ**: tmuxの変数システムを最大限活用
 3. **パフォーマンス重視**: 軽量で効率的な処理
+4. **🛡️ 信頼性重視**: 古いデータの表示を完全に防止（Reliability Watchdog機能）
+5. **🔍 自動回復**: デーモン停止時の自動検出・復旧システム
 
 ### 基本的な使用例
 
@@ -20,6 +22,9 @@ set -g status-right "⏱ #{@ccusage_time_remaining} | 🎯 #{@ccusage_tokens_rem
 
 # 詳細版  
 set -g status-right "#[fg=#{@ccusage_warning_color}]Claude: #{@ccusage_total_tokens_formatted}/#{@ccusage_token_limit_formatted} (#{@ccusage_usage_percent}) | #{@ccusage_burn_rate}/min | ⏱ #{@ccusage_time_remaining} | #{@ccusage_cost_current}#[default]"
+
+# 🛡️ Reliability Watchdog版（古いデータ表示を防止）
+set -g status-right "#[fg=#{@ccusage_warning_color}]#{@ccusage_staleness_indicator}Claude: #{@ccusage_total_tokens_formatted}/#{@ccusage_token_limit_formatted} (#{@ccusage_usage_percent}) | #{@ccusage_burn_rate}/min | ⏱ #{@ccusage_time_remaining} | #{@ccusage_cost_current}#[default]"
 ```
 
 ## Development Environment Setup
@@ -310,12 +315,29 @@ graph TB
         HC[HealthChecker]
     end
     
+    subgraph "Reliability Watchdog ⭐"
+        WM[WatchdogManager]
+        DFM[DataFreshnessManager]
+        RM[ReliabilityManager]
+    end
+    
     CC --> DP --> SU
     SU --> VM
     SU --> CR
     LM --> SU
     HR --> SU
     HC --> SU
+    
+    %% Reliability integration
+    RM --> WM
+    RM --> DFM
+    RM --> SU
+    WM --> LM
+    DFM --> VM
+    
+    style WM fill:#e74c3c,color:#fff
+    style DFM fill:#3498db,color:#fff
+    style RM fill:#2ecc71,color:#fff
 ```
 
 ## Resources
