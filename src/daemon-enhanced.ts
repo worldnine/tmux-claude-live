@@ -23,7 +23,6 @@ const reliabilityManager = new ReliabilityManager({
   // Data freshness settings  
   freshThresholdSeconds: 30,           // Fresh within 30 seconds
   staleThresholdSeconds: 300,          // Stale after 5 minutes
-  autoInvalidateExpired: true,
   
   // Integrated monitoring
   reliabilityCheckIntervalMs: 15000,   // Check every 15 seconds

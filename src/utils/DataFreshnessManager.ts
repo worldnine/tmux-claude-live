@@ -21,8 +21,6 @@ export enum DataFreshness {
 export interface FreshnessConfig {
   freshThresholdSeconds: number;    // 新鮮とみなす秒数（デフォルト: 30）
   staleThresholdSeconds: number;    // 古いとみなす秒数（デフォルト: 300）
-  autoInvalidateExpired: boolean;   // 期限切れデータの自動無効化（デフォルト: true）
-  warningPrefix: string;            // 警告用プレフィックス（デフォルト: "⚠️"）
 }
 
 // タイムスタンプ付きデータ
@@ -56,12 +54,10 @@ export class DataFreshnessManager {
     this.config = {
       freshThresholdSeconds: 30,
       staleThresholdSeconds: 300,
-      autoInvalidateExpired: true,
-      warningPrefix: "⚠️",
       ...config
     };
     
-    Logger.debug('DataFreshnessManager initialized', this.config);
+    Logger.debug('DataFreshnessManager initialized (警告色システム削除済み)', this.config);
   }
 
   /**

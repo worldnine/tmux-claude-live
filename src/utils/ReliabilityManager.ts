@@ -40,7 +40,6 @@ export interface ReliabilityConfig {
   // データ鮮度設定
   freshThresholdSeconds: number;
   staleThresholdSeconds: number;
-  autoInvalidateExpired: boolean;
   
   // 統合監視設定
   reliabilityCheckIntervalMs: number;
@@ -80,7 +79,6 @@ export class ReliabilityManager {
       restartCooldownMs: 5000,
       freshThresholdSeconds: 30,
       staleThresholdSeconds: 300,
-      autoInvalidateExpired: true,
       reliabilityCheckIntervalMs: 15000,
       autoRecoveryEnabled: true,
       criticalAlertThreshold: 3,
@@ -96,8 +94,7 @@ export class ReliabilityManager {
 
     this.dataManager = new DataFreshnessManager({
       freshThresholdSeconds: this.config.freshThresholdSeconds,
-      staleThresholdSeconds: this.config.staleThresholdSeconds,
-      autoInvalidateExpired: this.config.autoInvalidateExpired
+      staleThresholdSeconds: this.config.staleThresholdSeconds
     });
 
     Logger.info('ReliabilityManager initialized', this.config);

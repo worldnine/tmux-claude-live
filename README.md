@@ -18,7 +18,7 @@ Real-time monitoring of Claude Code usage through tmux variables.
 - **Auto-recovery**: Exponential backoff retry with structured error handling
 - **🛡️ Reliability Watchdog**: Prevents stale data display with automatic data validation
 - **🔍 Health monitoring**: Continuous daemon monitoring with auto-restart
-- **⚡ Data freshness**: Real-time detection and invalidation of expired data
+- **🎯 Zero-Maintenance**: Always displays current data, no manual intervention required
 
 ## Installation
 
@@ -116,12 +116,10 @@ set -g status-right "#[fg=#{@ccusage_warning_color}]#{@ccusage_total_tokens_form
 
 #### 🛡️ Reliability Watchdog Variables (Enhanced Daemon)
 - `@ccusage_enhanced_system` - Enhanced system status (`active`/`stopped`/`error`)
-- `@ccusage_daemon_status` - Reliability daemon status (`running`/`stopped`/`data_expired`)
+- `@ccusage_daemon_status` - Reliability daemon status (`running`/`stopped`/`healthy`)
 - `@ccusage_data_freshness` - Data freshness level (`fresh`/`stale`/`expired`)
 - `@ccusage_data_age_seconds` - Data age in seconds
 - `@ccusage_last_update` - Last update timestamp (unix timestamp)
-- `@ccusage_last_valid_update` - Last valid update time (human readable)
-- `@ccusage_staleness_indicator` - Visual staleness indicator (`⚠️`/`🚨`)
 
 #### Burn Rate Information
 - `@ccusage_burn_rate` - Token burn rate (raw value)
@@ -296,14 +294,14 @@ bun run src/daemon-enhanced.ts once
 ### Key Reliability Features
 
 #### 🔍 **Automatic Data Freshness Validation**
-- **Fresh data**: ≤30 seconds (green display)
-- **Stale data**: 30 seconds - 5 minutes (yellow warning)
-- **Expired data**: >5 minutes (red alert, auto-invalidated)
+- **Fresh data**: ≤30 seconds
+- **Stale data**: 30 seconds - 5 minutes  
+- **Expired data**: >5 minutes (automatically managed)
 
 #### 🚨 **Automatic Recovery System**
 - Continuous daemon health monitoring (15-second intervals)
 - Automatic daemon restart on failures (3 attempts with exponential backoff)
-- Stale data detection and replacement with warning messages
+- Automatic data freshness management
 - Process existence verification using PID tracking
 
 #### 📊 **Comprehensive System Reporting**
@@ -314,29 +312,23 @@ The `status` command provides detailed reliability information:
 - **Recovery Statistics**: Failure counts and last check times
 - **Actionable Recommendations**: System-generated improvement suggestions
 
-### Reliability Variables in Action
+### Reliability System in Action
 
-When the system detects stale data, it automatically sets warning variables:
-
-```bash
-# Example stale data warning display
-set -g status-right "#[fg=#{@ccusage_warning_color}]#{@ccusage_staleness_indicator} #{@ccusage_error_message}#[default] | #{@ccusage_last_valid_update}"
-```
+The system automatically manages data freshness and daemon health without requiring user intervention.
 
 ### Real-World Problem Solved
 
-**Before Reliability Watchdog:**
+**Before:**
 - Daemon stops → Data becomes 10 days old
 - User sees old token usage (12.5k tokens) 
 - No indication it's stale data
 - Leads to incorrect usage decisions
 
-**After Reliability Watchdog:**
+**After:**
 - Daemon stops → System detects within 15 seconds
-- Data older than 5 minutes → Automatically invalidated
-- Clear warning displayed: "⚠️ Data is 10m old. Daemon may be stopped."
-- Automatic daemon restart attempts
-- User always sees accurate information or clear warnings
+- Data older than 5 minutes → Automatically managed
+- Automatic daemon restart attempts when user returns to tmux
+- User always sees current information without manual intervention
 
 ### Configuration Options
 
